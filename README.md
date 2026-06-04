@@ -154,7 +154,6 @@ If a download is interrupted (e.g., connection drops, you press `Ctrl+C`), simpl
 | `python3: command not found` or missing Google libraries | Run the `pkg install` and `pip install` commands from the **Requirements** section. |
 | No files found in folder | The folder may be empty, or you don’t have access. Ensure the folder is shared with the same Google account used for OAuth. |
 | “Failed to resolve host” during download | Check your internet connection. `aria2c` will retry automatically when you re‑run the script. |
-| `bc: command not found` (older versions) | The script now uses pure Bash arithmetic; `bc` is no longer required. |
 
 ---
 
