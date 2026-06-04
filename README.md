@@ -35,8 +35,8 @@ pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/your-repo.git
-   cd your-repo
+   git clone https://github.com/itisak-51/Termux-Downloader.git
+   cd Termux-Downloader
    ```
    *(Or simply download `Downloader.sh` to your device.)*
 
@@ -79,7 +79,7 @@ To download from a Google Drive folder, the script needs read-only access. Youâ€
    - Move or copy `credentials.json` there.  
      Example:
      ```bash
-     mv /sdcard/Download/credentials.json ~/
+     mv /sdcard/Download/credentials.json ~/Termux-Downloader
      ```
 
 > **Important**: Keep `credentials.json` private â€“ it allows access to your Drive.
