@@ -1,8 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ============================================================================
-#  Downloader.sh - Resumable downloader for links.txt or Google Drive folders
-#  Now with recursive folder listing + automatic subdirectory creation.
-#  Interactive file selection in both modes.
+#  Downloader.sh - Resumable downloader for links.txt or Google Drive items
+#  Now supports: single files, folders (recursive), and plain link lists.
+#  Interactive file selection + confirmation with name/size.
 # ============================================================================
 
 DOWNLOAD_DIR="/sdcard/Download/TD_Downloads"
@@ -250,11 +250,9 @@ def list_recursive(service, folder_id, base_path=''):
             name = item['name']
             rel = f"{base_path}/{name}" if base_path else name
             if mime == 'application/vnd.google-apps.folder':
-                # Recursively list folder contents
                 sub_items = list_recursive(service, item['id'], rel)
                 all_items.extend(sub_items)
             else:
-                # It's a file
                 all_items.append({
                     'id': item['id'],
                     'name': name,
@@ -341,14 +339,116 @@ process_gdrive_folder() {
     select_files "$index"
 }
 
+# ----------------------------- Single Google Drive file --------------------
+process_gdrive_file() {
+    local file_url="$1"
+    local file_id=""
+
+    # Extract file ID from various URL formats
+    if [[ "$file_url" =~ /file/d/([a-zA-Z0-9_-]+) ]]; then
+        file_id="${BASH_REMATCH[1]}"
+    elif [[ "$file_url" =~ id=([a-zA-Z0-9_-]+) ]]; then
+        file_id="${BASH_REMATCH[1]}"
+    else
+        log "ERROR: Invalid Google Drive file URL"
+        exit 1
+    fi
+
+    log "Fetching info for Google Drive file ID: $file_id"
+
+    # Ensure Google API client is installed (same as folder mode)
+    if ! python3 -c "import googleapiclient" 2>/dev/null; then
+        log "Installing Google API client (first time only)..."
+        pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-httplib2
+    fi
+
+    local info_py="$ARIA2_TEMP_DIR/gdrive_file_info.py"
+    cat > "$info_py" << 'PYEOF'
+import os
+import pickle
+import sys
+from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+TOKEN_FILE = os.path.expanduser('gdrive_token.pickle')
+CRED_FILE = os.path.expanduser('credentials.json')
+
+def get_authenticated_service():
+    creds = None
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, 'rb') as token:
+            creds = pickle.load(token)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            if not os.path.exists(CRED_FILE):
+                sys.stderr.write("ERROR: credentials.json not found.\n")
+                sys.exit(1)
+            flow = InstalledAppFlow.from_client_secrets_file(CRED_FILE, SCOPES)
+            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+            auth_url, _ = flow.authorization_url(prompt='consent')
+            sys.stderr.write(f"\n🔐 Authorize this app by visiting:\n{auth_url}\n\n")
+            sys.stderr.write("After approval, enter the authorization code: ")
+            code = input().strip()
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+        with open(TOKEN_FILE, 'wb') as token:
+            pickle.dump(creds, token)
+    return build('drive', 'v3', credentials=creds)
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        sys.stderr.write("Usage: gdrive_file_info.py <file_id>\n")
+        sys.exit(1)
+    file_id = sys.argv[1]
+    try:
+        service = get_authenticated_service()
+        file_meta = service.files().get(fileId=file_id, fields="name,size").execute()
+        name = file_meta.get('name', 'unknown')
+        size = file_meta.get('size', '0')
+        print(f"{name}|{size}")
+    except Exception as e:
+        sys.stderr.write(f"Error: {e}\n")
+        sys.exit(1)
+PYEOF
+
+    local info_file="$ARIA2_TEMP_DIR/file_info.txt"
+    if ! python3 "$info_py" "$file_id" > "$info_file" 2>&1; then
+        log "Failed to get file info. Check error messages:"
+        cat "$info_file"
+        exit 1
+    fi
+
+    IFS='|' read -r file_name file_size < "$info_file"
+    log "File: $file_name"
+    log "Size: $(human_size "$file_size")"
+
+    echo ""
+    echo "Do you want to download this file? (y/n)"
+    read -r confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log "Aborted by user."
+        exit 0
+    fi
+
+    # Build direct download URL (confirm=t bypasses the warning page)
+    local download_url="https://drive.usercontent.google.com/download?id=$file_id&confirm=t"
+
+    download_with_aria2 "$download_url" "$file_name" "$file_name"
+}
+
 # ----------------------------- Main -----------------------------
 main() {
     if [[ $# -lt 1 ]]; then
-        echo "Usage: $0 <links.txt | google_drive_folder_url>"
+        echo "Usage: $0 <links.txt | google_drive_folder_url | google_drive_file_url>"
         echo ""
         echo "Examples:"
         echo "  $0 links.txt"
         echo "  $0 https://drive.google.com/drive/folders/1ABC123"
+        echo "  $0 https://drive.google.com/file/d/1XYZ789/view"
         exit 1
     fi
 
@@ -357,8 +457,10 @@ main() {
         process_links_txt "$input"
     elif [[ "$input" =~ drive.google.com.*folders ]]; then
         process_gdrive_folder "$input"
+    elif [[ "$input" =~ drive.google.com.*file/d/ ]]; then
+        process_gdrive_file "$input"
     else
-        echo "ERROR: '$input' is neither an existing file nor a Google Drive folder link."
+        echo "ERROR: '$input' is neither an existing file nor a Google Drive folder/file link."
         exit 1
     fi
 
