@@ -35,7 +35,7 @@ pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-
 
 1. **Clone the repository**:
    ```bash
-   git https://github.com/itisak-51/Termux-Downloader.git
+   git clone https://github.com/itisak-51/Termux-Downloader.git
    cd Termux-Downloader
    ```
    *(Or simply download `Downloader.sh` to your device.)*
