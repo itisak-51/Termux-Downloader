@@ -79,7 +79,7 @@ To download from a Google Drive folder, the script needs read‑only access. You
    - Move or copy `credentials.json` there.  
      Example:
      ```bash
-     mv /sdcard/Download/credentials.json ~/Termux-Downloader
+     cp /sdcard/Download/credentials.json ~/Termux-Downloader
      ```
 
 > **Important**: Keep `credentials.json` private – it allows access to your Drive.
