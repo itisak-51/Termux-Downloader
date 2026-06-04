@@ -1,11 +1,11 @@
 # Downloader.sh
 
 **Resumable file downloader for Termux on Android (or any Linux system)**  
-Supports direct URLs from a `links.txt` file **and** entire Google Drive folders with interactive file selection.
+Supports direct URLs from a `links.txt` file **and** entire Google Drive folders – both with interactive file selection.
 
 - ✅ Resumes interrupted downloads automatically (uses `aria2c`)
-- ✅ Lists files with size before downloading
-- ✅ Pick files individually, by range, or all/none
+- ✅ Interactive file list with index numbers and sizes (where available)
+- ✅ Pick files individually, by range, or all/none – for **both** modes
 - ✅ Works without a browser on headless or Android/Termux environments
 - ✅ Single self-contained script – no manual Python editing required
 
@@ -35,8 +35,8 @@ pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/itisak-51/Termux-Downloader.git
-   cd Termux-Downloader
+   git clone https://github.com/your-username/your-repo.git
+   cd your-repo
    ```
    *(Or simply download `Downloader.sh` to your device.)*
 
@@ -49,7 +49,7 @@ pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-
 
 ## Google Drive Setup (required only for folders)
 
-To download from a Google Drive folder, the script needs read-only access. You’ll create an OAuth 2.0 Desktop client in the Google Cloud Console.
+To download from a Google Drive folder, the script needs read‑only access. You’ll create an OAuth 2.0 Desktop client in the Google Cloud Console.
 
 ### Step‑by‑step: Obtaining `credentials.json`
 
@@ -79,7 +79,7 @@ To download from a Google Drive folder, the script needs read-only access. You�
    - Move or copy `credentials.json` there.  
      Example:
      ```bash
-     mv /sdcard/Download/credentials.json ~/Termux-Downloader
+     mv /sdcard/Download/credentials.json ~/
      ```
 
 > **Important**: Keep `credentials.json` private – it allows access to your Drive.
@@ -93,17 +93,21 @@ To download from a Google Drive folder, the script needs read-only access. You�
 Create a text file with one direct URL per line. Optionally, add a custom filename separated by `|`. Lines beginning with `#` are ignored.
 
 **Example `links.txt`:**
+
 ```
 https://example.com/file1.zip
 https://example.com/file2.mp4|MyVideo.mp4
 # This is a comment
 ```
 
-Then run:
+Run:
 
 ```bash
 ./Downloader.sh links.txt
 ```
+
+**You will see a numbered list** of files (size shown as `?` because it’s unknown).  
+Choose which files to download, exactly like the Google Drive mode.
 
 ### 2. Download from a Google Drive folder
 
@@ -154,6 +158,7 @@ If a download is interrupted (e.g., connection drops, you press `Ctrl+C`), simpl
 | `python3: command not found` or missing Google libraries | Run the `pkg install` and `pip install` commands from the **Requirements** section. |
 | No files found in folder | The folder may be empty, or you don’t have access. Ensure the folder is shared with the same Google account used for OAuth. |
 | “Failed to resolve host” during download | Check your internet connection. `aria2c` will retry automatically when you re‑run the script. |
+| Size shown as `?` in links.txt mode | Direct URL sizes cannot be known without a HEAD request. This is normal. |
 
 ---
 
@@ -161,10 +166,13 @@ If a download is interrupted (e.g., connection drops, you press `Ctrl+C`), simpl
 
 - The script is built primarily for **Termux on Android**, but works on any Linux environment with `aria2`, `python3`, and the Google API libraries.
 - The OAuth token is cached in `gdrive_token.pickle` – you will not need to re‑authenticate until it expires (usually after a long time).
-- The `links.txt` mode does **not** show an interactive file list; it downloads every URL listed.
+- Both `links.txt` and Google Drive modes now offer **interactive file selection** – you always choose what to download.
 
 ---
 
 ## License
 
 This project is provided as‑is for personal use. Feel free to modify and share.
+```
+
+---
