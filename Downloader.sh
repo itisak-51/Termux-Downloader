@@ -1,15 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# ============================================================================
-#  Downloader.sh - Resumable downloader for links.txt or Google Drive items
-#  Now supports: single files, folders (recursive), and plain link lists.
-#  Interactive file selection + confirmation with name/size.
-# ============================================================================
 
 DOWNLOAD_DIR="/sdcard/Download/TD_Downloads"
 ARIA2_TEMP_DIR=".aria2_control"
 LOG_FILE="log.txt"
-GDRIVE_TOKEN_FILE="gdrive_token.pickle"
-GDRIVE_CREDENTIALS_FILE="credentials.json"
 
 mkdir -p "$DOWNLOAD_DIR" "$ARIA2_TEMP_DIR"
 
@@ -192,6 +185,83 @@ process_links_txt() {
     select_files "$index"
 }
 
+# ----------------------------- Google Drive Authentication Helper ----------------
+ensure_gdrive_auth() {
+    if ! python3 -c "import googleapiclient" 2>/dev/null; then
+        log "Installing Google API client (first time only)..."
+        pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-httplib2
+    fi
+
+    # Small script to ensure credentials exist, will trigger interactive auth if needed
+    local auth_checker="$ARIA2_TEMP_DIR/gdrive_auth_check.py"
+    cat > "$auth_checker" << 'PYEOF'
+import os
+import pickle
+import sys
+from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+TOKEN_FILE = os.path.expanduser('gdrive_token.pickle')
+CRED_FILE = os.path.expanduser('credentials.json')
+
+def get_authenticated_service():
+    creds = None
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, 'rb') as token:
+            creds = pickle.load(token)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            if not os.path.exists(CRED_FILE):
+                sys.stderr.write("\nERROR: credentials.json not found.\n")
+                sys.stderr.write("Please follow Google's OAuth guide to create one:\n")
+                sys.stderr.write("https://developers.google.com/drive/api/quickstart/python\n")
+                sys.exit(1)
+            flow = InstalledAppFlow.from_client_secrets_file(CRED_FILE, SCOPES)
+            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+            auth_url, _ = flow.authorization_url(prompt='consent')
+            
+            # Print the auth URL for manual opening, but the script will also attempt to auto-open
+            sys.stderr.write(f"\n🔐 Authorization Required!\n")
+            sys.stderr.write(f"📎 Please authorize this app by visiting this URL:\n{auth_url}\n\n")
+            
+            # Try to automatically open the URL in the default browser
+            try:
+                import subprocess
+                # For Termux
+                subprocess.run(['termux-open-url', auth_url], check=False)
+                sys.stderr.write("🌐 Attempted to open the link in your browser automatically.\n")
+                sys.stderr.write("   If nothing happened, please copy the URL above and open it manually.\n\n")
+            except Exception:
+                sys.stderr.write("⚠️  Could not auto-open the browser. Please open the URL manually.\n\n")
+            
+            sys.stderr.write("After approval, enter the authorization code: ")
+            code = input().strip()
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+        with open(TOKEN_FILE, 'wb') as token:
+            pickle.dump(creds, token)
+    return build('drive', 'v3', credentials=creds)
+
+if __name__ == '__main__':
+    try:
+        service = get_authenticated_service()
+        print("AUTH_SUCCESS")
+    except Exception as e:
+        sys.stderr.write(f"Error during authentication: {e}\n")
+        sys.exit(1)
+PYEOF
+
+    if ! python3 "$auth_checker" 2>&1 | grep -q "AUTH_SUCCESS"; then
+        log "Google Drive authentication failed. Please check credentials.json and try again."
+        exit 1
+    fi
+    log "Google Drive authentication successful."
+}
+
 # ----------------------------- Google Drive Lister (recursive) ------------
 create_gdrive_lister() {
     cat > "$ARIA2_TEMP_DIR/gdrive_lister.py" << 'PYEOF'
@@ -222,6 +292,13 @@ def get_authenticated_service():
             flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
             auth_url, _ = flow.authorization_url(prompt='consent')
             sys.stderr.write(f"\n🔐 Authorize this app by visiting:\n{auth_url}\n\n")
+            # Auto-open attempt
+            try:
+                import subprocess
+                subprocess.run(['termux-open-url', auth_url], check=False)
+                sys.stderr.write("🌐 Attempted to open the link in your browser automatically.\n\n")
+            except Exception:
+                pass
             sys.stderr.write("After approval, enter the authorization code: ")
             code = input().strip()
             flow.fetch_token(code=code)
@@ -293,6 +370,9 @@ process_gdrive_folder() {
     local folder_url="$1"
     local folder_id=""
 
+    # Ensure authentication is done before proceeding
+    ensure_gdrive_auth
+
     if [[ "$folder_url" =~ /folders/([a-zA-Z0-9_-]+) ]]; then
         folder_id="${BASH_REMATCH[1]}"
     elif [[ "$folder_url" =~ id=([a-zA-Z0-9_-]+) ]]; then
@@ -303,11 +383,6 @@ process_gdrive_folder() {
     fi
 
     log "Fetching file list recursively from Google Drive folder ID: $folder_id"
-
-    if ! python3 -c "import googleapiclient" 2>/dev/null; then
-        log "Installing Google API client (first time only)..."
-        pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-httplib2
-    fi
 
     create_gdrive_lister
 
@@ -344,6 +419,9 @@ process_gdrive_file() {
     local file_url="$1"
     local file_id=""
 
+    # Ensure authentication is done before proceeding
+    ensure_gdrive_auth
+
     # Extract file ID from various URL formats
     if [[ "$file_url" =~ /file/d/([a-zA-Z0-9_-]+) ]]; then
         file_id="${BASH_REMATCH[1]}"
@@ -355,12 +433,6 @@ process_gdrive_file() {
     fi
 
     log "Fetching info for Google Drive file ID: $file_id"
-
-    # Ensure Google API client is installed (same as folder mode)
-    if ! python3 -c "import googleapiclient" 2>/dev/null; then
-        log "Installing Google API client (first time only)..."
-        pip install --upgrade google-api-python-client google-auth-oauthlib google-auth-httplib2
-    fi
 
     local info_py="$ARIA2_TEMP_DIR/gdrive_file_info.py"
     cat > "$info_py" << 'PYEOF'
@@ -391,6 +463,13 @@ def get_authenticated_service():
             flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
             auth_url, _ = flow.authorization_url(prompt='consent')
             sys.stderr.write(f"\n🔐 Authorize this app by visiting:\n{auth_url}\n\n")
+            # Auto-open attempt
+            try:
+                import subprocess
+                subprocess.run(['termux-open-url', auth_url], check=False)
+                sys.stderr.write("🌐 Attempted to open the link in your browser automatically.\n\n")
+            except Exception:
+                pass
             sys.stderr.write("After approval, enter the authorization code: ")
             code = input().strip()
             flow.fetch_token(code=code)
